@@ -1,0 +1,24 @@
+# Dataset — too large for GitHub
+archive/
+archive (1)/
+
+# Trained model weights — too large for GitHub
+*.keras
+*.h5
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Uploaded images
+static/uploads/
+
+# Environment
+.env
+venv/
+
+# PNG outputs
+*.png
