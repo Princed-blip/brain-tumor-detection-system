@@ -1,4 +1,7 @@
 import os
+import sqlite3
+import hashlib
+import secrets
 import numpy as np
 import cv2
 import tensorflow as tf
@@ -8,10 +11,114 @@ from tensorflow.keras.applications import EfficientNetV2B0
 from tensorflow.keras.applications.efficientnet_v2 import preprocess_input
 from tensorflow.keras.layers import GlobalAveragePooling2D, BatchNormalization, Dense, Dropout
 from tensorflow.keras.models import Model
+from io import BytesIO
+from datetime import datetime
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table,
+    TableStyle, Image as PDFImage
+)
+
+# ─────────────────────────────────────────
+# DATABASE AND AUTHENTICATION
+# ─────────────────────────────────────────
+
+DB_PATH = "users.db"
+
+
+def get_db_connection():
+    return sqlite3.connect(DB_PATH)
+
+
+def create_users_table():
+    with get_db_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+def hash_password(password, salt=None):
+    if salt is None:
+        salt = secrets.token_hex(16)
+
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        bytes.fromhex(salt),
+        310000
+    ).hex()
+
+    return password_hash, salt
+
+
+def create_user(full_name, email, password):
+    password_hash, salt = hash_password(password)
+
+    try:
+        with get_db_connection() as conn:
+            conn.execute("""
+                INSERT INTO users
+                (full_name, email, password_hash, salt)
+                VALUES (?, ?, ?, ?)
+            """, (full_name.strip(), email.strip().lower(),
+                  password_hash, salt))
+
+        return True
+
+    except sqlite3.IntegrityError:
+        return False
+
+
+def verify_user(email, password):
+    with get_db_connection() as conn:
+        user = conn.execute("""
+            SELECT full_name, email, password_hash, salt
+            FROM users
+            WHERE email = ?
+        """, (email.strip().lower(),)).fetchone()
+
+    if user is None:
+        return None
+
+    entered_hash, _ = hash_password(password, user[3])
+
+    if secrets.compare_digest(user[2], entered_hash):
+        return {
+            "full_name": user[0],
+            "email": user[1]
+        }
+
+    return None
+
+
+# Create database table
+create_users_table()
+
+
+# Initialize session
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+
+favicon = Image.open("favicon.jpg")
 
 st.set_page_config(
     page_title="NeuroScan AI · Princedex",
-    page_icon="🔬",
+    page_icon= favicon,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -226,6 +333,96 @@ div[data-testid="stFileUploader"] {
 .footer .fb span { color:#5aabff; }
 .footer .fd { font-size:11px; color:#1a3a5a; line-height:2; }
 .footer .fd a { color:#5aabff; text-decoration:none; }
+/* Sign In / Sign Up input fields */
+.stTextInput input {
+    background-color: #172033 !important;
+    color: #ffffff !important;
+    border: 1px solid #334155 !important;
+    border-radius: 8px !important;
+}
+
+/* Input labels */
+.stTextInput label {
+    color: #e2e8f0 !important;
+}
+
+/* Placeholder text */
+.stTextInput input::placeholder {
+    color: #94a3b8 !important;
+}
+
+/* Sign In / Sign Up buttons */
+.stButton button,
+.stFormSubmitButton button {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px !important;
+}
+
+/* Button hover */
+.stButton button:hover,
+.stFormSubmitButton button:hover {
+    background-color: #1d4ed8 !important;
+    color: #ffffff !important;
+}
+
+/* Radio options */
+.stRadio label {
+    color: #e2e8f0 !important;
+}
+
+/* Form background */
+[data-testid="stForm"] {
+    background-color: #111827 !important;
+    border: 1px solid #334155 !important;
+    border-radius: 10px !important;
+    padding: 15px !important;
+}
+/* Dark theme for MRI file uploader */
+[data-testid="stFileUploader"] {
+    background: #0b1b2b !important;
+    border: 1px solid #244466 !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+}
+
+[data-testid="stFileUploader"] section {
+    background: #0b1b2b !important;
+    border: none !important;
+}
+
+[data-testid="stFileUploader"] section > div {
+    background: #0b1b2b !important;
+}
+
+[data-testid="stFileUploader"] label {
+    color: #d5e6f7 !important;
+}
+
+[data-testid="stFileUploader"] small {
+    color: #8da9c4 !important;
+}
+
+[data-testid="stFileUploader"] button {
+    background: #15385a !important;
+    color: #ffffff !important;
+    border: 1px solid #3a78ad !important;
+    border-radius: 8px !important;
+}
+
+[data-testid="stFileUploader"] button:hover {
+    background: #20517d !important;
+}
+/* Make uploader file-type and size information visible */
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] p {
+    color: #8da9c4 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    font-size: 12px !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -302,6 +499,134 @@ st.markdown("""
 
 # ── Sidebar
 with st.sidebar:
+        # ─────────────────────────────────────
+    # ACCOUNT MENU
+    # ─────────────────────────────────────
+
+    st.markdown("""
+        <div class="sb-sec">
+            <div class="sbt">👤 ACCOUNT</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.session_state.authenticated:
+
+        st.success(
+            f"Welcome, {st.session_state.user['full_name']}!"
+        )
+
+        st.caption(st.session_state.user["email"])
+
+        if st.button("🚪 Sign Out", key="sign_out"):
+
+            st.session_state.authenticated = False
+            st.session_state.user = None
+
+            st.rerun()
+
+    else:
+
+        account_option = st.radio(
+            "Account",
+            ["Sign In", "Sign Up"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+        if account_option == "Sign In":
+
+            with st.form("login_form"):
+
+                st.markdown("### Welcome Back")
+
+                email = st.text_input("Email Address")
+
+                password = st.text_input(
+                    "Password",
+                    type="password"
+                )
+
+                login = st.form_submit_button(
+                    "Sign In",
+                    use_container_width=True
+                )
+
+            if login:
+
+                user = verify_user(email, password)
+
+                if user:
+
+                    st.session_state.authenticated = True
+                    st.session_state.user = user
+
+                    st.rerun()
+
+                else:
+                    st.error("Invalid email or password.")
+
+        else:
+
+            with st.form("signup_form"):
+
+                st.markdown("### Create Your Account")
+
+                full_name = st.text_input("Full Name")
+
+                new_email = st.text_input("Email Address")
+
+                new_password = st.text_input(
+                    "Password",
+                    type="password"
+                )
+
+                confirm_password = st.text_input(
+                    "Confirm Password",
+                    type="password"
+                )
+
+                signup = st.form_submit_button(
+                    "Create Account",
+                    use_container_width=True
+                )
+
+            if signup:
+
+                if not full_name.strip() or not new_email.strip() or not new_password:
+
+                    st.error("Please complete all fields.")
+
+                elif "@" not in new_email or "." not in new_email.split("@")[-1]:
+
+                    st.error("Enter a valid email address.")
+
+                elif len(new_password) < 8:
+
+                    st.error("Password must contain at least 8 characters.")
+
+                elif new_password != confirm_password:
+
+                    st.error("Passwords do not match.")
+
+                else:
+
+                    success = create_user(
+                        full_name,
+                        new_email,
+                        new_password
+                    )
+
+                    if success:
+
+                        st.success(
+                            "Account created! Please sign in."
+                        )
+
+                    else:
+
+                        st.error(
+                            "This email is already registered."
+                        )
     st.markdown("""
     <div class="sb-brand">
         <div class="sbn">Neuro<span>Scan</span> AI</div>
@@ -317,31 +642,55 @@ with st.sidebar:
         Project using EfficientNetV2, transfer learning, and Grad-CAM
         explainability.</p>
     </div>
+    """, unsafe_allow_html=True)
 
-    <div class="sb-sec">
-        <div class="sbt">🧬 Tumor Classes</div>
+    # 🧬 Tumor Classes — Collapsible
+    with st.expander("🧬 Tumor Classes", expanded=True):
+        st.markdown("""
         <div class="tc" style="border-color:#ff5252">
-            <div class="tcn" style="color:#ff5252 !important">🔴 Glioma Tumor</div>
-            <div class="tcd">Arises from glial cells. Most aggressive primary tumor.
-            WHO Grade 1–4. GBM (Grade 4) has median survival of ~15 months.</div>
+            <div class="tcn" style="color:#ff5252 !important">
+                🔴 Glioma Tumor
+            </div>
+            <div class="tcd">
+                Arises from glial cells. Most aggressive primary tumor.
+                WHO Grade 1–4. GBM (Grade 4) has median survival of ~15 months.
+            </div>
         </div>
-        <div class="tc" style="border-color:#ff9800">
-            <div class="tcn" style="color:#ff9800 !important">🟠 Meningioma Tumor</div>
-            <div class="tcd">Arises from meningeal membranes. Most common primary
-            brain tumor overall (~36%). Usually benign. More frequent in women 40+.</div>
-        </div>
-        <div class="tc" style="border-color:#ce93d8">
-            <div class="tcn" style="color:#ce93d8 !important">🟣 Pituitary Tumor</div>
-            <div class="tcd">Arises from the pituitary gland. Usually a benign
-            adenoma. Can cause hormonal disorders and visual field defects.</div>
-        </div>
-        <div class="tc" style="border-color:#00e870">
-            <div class="tcn" style="color:#00e870 !important">🟢 No Tumor</div>
-            <div class="tcd">No tumor evidence detected. Normal brain tissue
-            observed. Routine clinical follow-up still recommended.</div>
-        </div>
-    </div>
 
+        <div class="tc" style="border-color:#ff9800">
+            <div class="tcn" style="color:#ff9800 !important">
+                🟠 Meningioma Tumor
+            </div>
+            <div class="tcd">
+                Arises from meningeal membranes. Most common primary
+                brain tumor overall (~36%). Usually benign.
+                More frequent in women 40+.
+            </div>
+        </div>
+
+        <div class="tc" style="border-color:#ce93d8">
+            <div class="tcn" style="color:#ce93d8 !important">
+                🟣 Pituitary Tumor
+            </div>
+            <div class="tcd">
+                Arises from the pituitary gland. Usually a benign
+                adenoma. Can cause hormonal disorders and visual field defects.
+            </div>
+        </div>
+
+        <div class="tc" style="border-color:#00e870">
+            <div class="tcn" style="color:#00e870 !important">
+                🟢 No Tumor
+            </div>
+            <div class="tcd">
+                No tumor evidence detected. Normal brain tissue
+                observed. Routine clinical follow-up still recommended.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Continue with the other sections
+    st.markdown("""
     <div class="sb-sec">
         <div class="sbt">⚙️ Model Architecture</div>
         <p>
@@ -356,45 +705,56 @@ with st.sidebar:
         <b>Framework:</b> TensorFlow 2.x / Keras
         </p>
     </div>
+    """, unsafe_allow_html=True)
 
-    <div class="sb-sec">
-        <div class="sbt">📊 Performance Metrics</div>
-        <p>
-        <b>Test Accuracy:</b> <span style="color:#5aabff !important">71.57%</span><br>
-        <b>Val Accuracy:</b> <span style="color:#5aabff !important">82.20%</span><br>
-        <b>AUC-ROC:</b> <span style="color:#5aabff !important">0.8928</span><br>
-        <b>No Tumor Sensitivity:</b> <span style="color:#00e870 !important">90.48%</span><br>
-        <b>Meningioma Sensitivity:</b> <span style="color:#ff9800 !important">82.61%</span><br>
-        <b>Pituitary Sensitivity:</b> <span style="color:#ce93d8 !important">71.62%</span><br>
-        <b>Glioma Sensitivity:</b> <span style="color:#ff5252 !important">39.00%</span>
-        <span style="color:#1a3a5a !important;font-size:10px;"> ← active research area</span>
-        </p>
-    </div>
+    with st.expander("📊 Performance Metrics", expanded=True):
+        st.markdown("""
+        <div class="sb-sec">
+            <div class="sbt">Performance Metrics</div>
+            <p>
+            <b>Test Accuracy:</b> <span style="color:#5aabff !important">71.57%</span><br>
+            <b>Val Accuracy:</b> <span style="color:#5aabff !important">82.20%</span><br>
+            <b>AUC-ROC:</b> <span style="color:#5aabff !important">0.8928</span><br>
+            <b>No Tumor Sensitivity:</b> <span style="color:#00e870 !important">90.48%</span><br>
+            <b>Meningioma Sensitivity:</b> <span style="color:#ff9800 !important">82.61%</span><br>
+            <b>Pituitary Sensitivity:</b> <span style="color:#ce93d8 !important">71.62%</span><br>
+            <b>Glioma Sensitivity:</b> <span style="color:#ff5252 !important">39.00%</span>
+            <span style="color:#1a3a5a !important;font-size:10px;"> ← active research area</span>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    <div class="sb-sec">
-        <div class="sbt">🔍 What is Grad-CAM?</div>
-        <p><b>Gradient-weighted Class Activation Mapping</b> uses
-        gradients flowing into the final convolutional layer to generate
-        a heatmap revealing <b>which regions of the MRI</b> the model
-        focused on when making its decision.<br><br>
-        <b style="color:#ff6060 !important">Red/Yellow</b> = high attention<br>
-        <b style="color:#5aabff !important">Blue</b> = low attention<br><br>
-        This bridges the gap between AI accuracy and clinical trust —
-        showing doctors <i>why</i> the model reached a diagnosis.</p>
-    </div>
+    with st.expander("🔍 Grad-CAM", expanded=True):
+        st.markdown("""
+        <div class="sb-sec">
+            <div class="sbt">What is Grad-CAM?</div>
+            <p><b>Gradient-weighted Class Activation Mapping</b> uses
+            gradients flowing into the final convolutional layer to generate
+            a heatmap revealing <b>which regions of the MRI</b> the model
+            focused on when making its decision.<br><br>
+            <b style="color:#ff6060 !important">Red/Yellow</b> = high attention<br>
+            <b style="color:#5aabff !important">Blue</b> = low attention<br><br>
+            This bridges the gap between AI accuracy and clinical trust —
+            showing doctors <i>why</i> the model reached a diagnosis.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    <div class="sb-sec">
-        <div class="sbt">📚 Dataset</div>
-        <p>
-        <b>Name:</b> Kaggle Brain MRI Dataset<br>
-        <b>Total images:</b> 3,264 MRI scans<br>
-        <b>Modality:</b> T1-weighted MRI<br>
-        <b>Train/Val/Test:</b> 70% / 15% / 15%<br>
-        <b>Augmentation:</b> Rotation, flip, zoom,
-        brightness, shear transformations
-        </p>
-    </div>
+    with st.expander("📚 Dataset", expanded=True):
+        st.markdown("""
+        <div class="sb-sec">
+            <div class="sbt">📚 Dataset</div>
+            <p>
+            <b>Name:</b> Kaggle Brain MRI Dataset<br>
+            <b>Total images:</b> 3,264 MRI scans<br>
+            <b>Modality:</b> T1-weighted MRI<br>
+            <b>Train/Val/Test:</b> 70% / 15% / 15%<br>
+            <b>Augmentation:</b> Rotation, flip, zoom,
+            brightness, shear transformations
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
+    st.markdown("""
     <div class="sb-sec">
         <div class="sbt">👨‍💻 Developer</div>
         <p>
@@ -403,11 +763,32 @@ with st.sidebar:
         <b>Email:</b> <a href="mailto:ifeanyistephen003@gmail.com">
         ifeanyistephen003@gmail.com</a><br>
         <b>Project:</b> Final Year Project<br>
+        <b>Supervised By:</b> Engr. Dr. Ojike<br>
         <b>Discipline:</b> AI · Deep Learning · Medical Imaging
         </p>
     </div>
     """, unsafe_allow_html=True)
+# ─────────────────────────────────────────
+# AUTHENTICATION ACCESS CONTROL
+# ─────────────────────────────────────────
 
+if not st.session_state.authenticated:
+
+    st.markdown("""
+        <div class="hero">
+            <div class="hero-eye">NEUROSCAN AI SECURITY</div>
+            <div class="hero-title">
+                Welcome to <span>NeuroScan AI</span>
+            </div>
+            <div class="hero-sub">
+                Please sign in or create an account
+                using the sidebar to access the
+                Brain Tumor Detection System.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.stop()
 # ── Hero
 st.markdown("""
 <div class="hero">
@@ -477,6 +858,145 @@ def make_gradcam(img_pil, heatmap):
     overlay         = (heatmap_rgb * 0.45 + img_np * 0.55).astype(np.uint8)
     return heatmap_rgb, overlay
 
+def create_analysis_pdf(
+    img_pil, prediction, confidence, probs,
+    heatmap_rgb, overlay, info
+):
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    title_style = ParagraphStyle(
+        "ReportTitle",
+        parent=styles["Title"],
+        textColor=colors.HexColor("#164b91"),
+        fontSize=20,
+        spaceAfter=15
+    )
+
+    story.append(Paragraph("NEUROSCAN AI", title_style))
+    story.append(Paragraph("Brain MRI Analysis Report", styles["Heading2"]))
+    story.append(Spacer(1, 15))
+
+    analysis_date = datetime.now().strftime("%d %B %Y, %I:%M %p")
+
+    story.append(Paragraph(
+        f"<b>Analysis Date:</b> {analysis_date}",
+        styles["Normal"]
+    ))
+    story.append(Spacer(1, 15))
+
+    # Prediction summary
+    story.append(Paragraph("1. Prediction Summary", styles["Heading2"]))
+
+    summary_data = [
+        ["Analysis Parameter", "Result"],
+        ["AI Prediction", prediction],
+        ["Model Confidence", f"{confidence}%"],
+        ["Sensitivity", info["sensitivity"]],
+        ["Specificity", info["specificity"]]
+    ]
+
+    summary_table = Table(summary_data, colWidths=[220, 220])
+
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#164b91")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("PADDING", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE")
+    ]))
+
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+
+    # Class probabilities
+    story.append(Paragraph(
+        "2. Classification Probabilities",
+        styles["Heading2"]
+    ))
+
+    probability_data = [["Tumour Class", "Probability"]]
+
+    for i in range(NUM_CLASSES):
+        probability_data.append([
+            CLASS_NAMES[i],
+            f"{float(probs[i]) * 100:.2f}%"
+        ])
+
+    probability_table = Table(
+        probability_data,
+        colWidths=[220, 220]
+    )
+
+    probability_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#164b91")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("PADDING", (0, 0), (-1, -1), 9)
+    ]))
+
+    story.append(probability_table)
+    story.append(Spacer(1, 20))
+
+    # Grad-CAM images
+    story.append(Paragraph(
+        "3. Grad-CAM Explainability",
+        styles["Heading2"]
+    ))
+
+    original_buffer = BytesIO()
+    overlay_buffer = BytesIO()
+    heatmap_buffer = BytesIO()
+
+    img_pil.resize(IMG_SIZE).save(original_buffer, format="PNG")
+    Image.fromarray(overlay).save(overlay_buffer, format="PNG")
+    Image.fromarray(heatmap_rgb).save(heatmap_buffer, format="PNG")
+
+    original_buffer.seek(0)
+    overlay_buffer.seek(0)
+    heatmap_buffer.seek(0)
+
+    story.append(Paragraph("Original MRI Scan", styles["Normal"]))
+    story.append(PDFImage(original_buffer, width=2.3*inch, height=2.3*inch))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("Attention Heatmap", styles["Normal"]))
+    story.append(PDFImage(heatmap_buffer, width=2.3*inch, height=2.3*inch))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("Grad-CAM Overlay", styles["Normal"]))
+    story.append(PDFImage(overlay_buffer, width=2.3*inch, height=2.3*inch))
+    story.append(Spacer(1, 20))
+
+    # Disclaimer
+    story.append(Paragraph(
+        "4. Important Medical Disclaimer",
+        styles["Heading2"]
+    ))
+
+    story.append(Paragraph(
+        "This report contains an AI-generated research prediction. "
+        "It is not a confirmed medical diagnosis and must not replace "
+        "professional medical assessment. Please consult a qualified "
+        "radiologist or physician for proper interpretation of MRI scans.",
+        styles["Normal"]
+    ))
+
+    doc.build(story)
+
+    return buffer.getvalue()
+
 # ── Main layout
 left, right = st.columns([1, 1.45], gap="large")
 
@@ -486,7 +1006,7 @@ with left:
 
     if uploaded:
         img_pil = Image.open(uploaded).convert("RGB")
-        st.image(img_pil, caption="Uploaded MRI Scan", use_column_width=True)
+        st.image(img_pil, caption="Uploaded MRI Scan", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
         analyse = st.button("🔬  Analyse MRI Scan", use_container_width=True)
         st.markdown("""
@@ -602,14 +1122,35 @@ with right:
 
         g1, g2, g3 = st.columns(3)
         with g1:
-            st.image(np.array(img_pil.resize(IMG_SIZE)), use_column_width=True)
+            st.image(np.array(img_pil.resize(IMG_SIZE)), use_container_width=True)
             st.markdown('<div class="gc-lbl">Original MRI</div>', unsafe_allow_html=True)
         with g2:
-            st.image(heatmap_rgb, use_column_width=True)
+            st.image(heatmap_rgb, use_container_width=True)
             st.markdown('<div class="gc-lbl">Attention Heatmap</div>', unsafe_allow_html=True)
         with g3:
-            st.image(overlay, use_column_width=True)
+            st.image(overlay, use_container_width=True)
             st.markdown('<div class="gc-lbl">Grad-CAM Overlay</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+        pdf_report = create_analysis_pdf(
+            img_pil,
+            prediction,
+            confidence,
+            probs,
+            heatmap_rgb,
+            overlay,
+            info
+        )
+
+        st.download_button(
+            label="📄 Download Analysis Report (PDF)",
+            data=pdf_report,
+            file_name=f"NeuroScan_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="download_analysis_report",
+            on_click="ignore"
+        )
     else:
         st.markdown(MRI_PLACEHOLDER, unsafe_allow_html=True)
         st.markdown("""
