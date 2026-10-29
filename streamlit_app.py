@@ -114,7 +114,6 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 
-favicon = Image.open("favicon.jpg")
 
 st.set_page_config(
     page_title="NeuroScan AI · Princedex",
