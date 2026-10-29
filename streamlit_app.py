@@ -117,7 +117,7 @@ if "user" not in st.session_state:
 
 st.set_page_config(
     page_title="NeuroScan AI · Princedex",
-    page_icon= favicon,
+    # page_icon= favicon,
     layout="wide",
     initial_sidebar_state="expanded"
 )
