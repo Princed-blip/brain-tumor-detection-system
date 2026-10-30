@@ -113,6 +113,7 @@ if "authenticated" not in st.session_state:
 if "user" not in st.session_state:
     st.session_state.user = None
 
+
 favicon = Image.open("favicon.jpg")
 
 st.set_page_config(
@@ -516,7 +517,7 @@ with st.sidebar:
 
         st.caption(st.session_state.user["email"])
 
-        if st.button("🚪 Sign Out", key="sign_out"):
+        if st.button("Sign Out", key="sign_out"):
 
             st.session_state.authenticated = False
             st.session_state.user = None
@@ -547,7 +548,7 @@ with st.sidebar:
 
                 login = st.form_submit_button(
                     "Sign In",
-                    use_column_width=True
+                    use_container_width=True
                 )
 
             if login:
@@ -586,7 +587,7 @@ with st.sidebar:
 
                 signup = st.form_submit_button(
                     "Create Account",
-                    use_column_width=True
+                    use_container_width=True
                 )
 
             if signup:
@@ -1005,9 +1006,9 @@ with left:
 
     if uploaded:
         img_pil = Image.open(uploaded).convert("RGB")
-        st.image(img_pil, caption="Uploaded MRI Scan", use_column_width=True)
+        st.image(img_pil, caption="Uploaded MRI Scan", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        analyse = st.button("🔬  Analyse MRI Scan", use_column_width=True)
+        analyse = st.button("🔬  Analyse MRI Scan", use_container_width=True)
         st.markdown("""
         <div class="warn">
             <b>Important:</b> This is a research prototype for academic purposes only.
@@ -1121,13 +1122,13 @@ with right:
 
         g1, g2, g3 = st.columns(3)
         with g1:
-            st.image(np.array(img_pil.resize(IMG_SIZE)), use_column_width=True)
+            st.image(np.array(img_pil.resize(IMG_SIZE)), use_container_width=True)
             st.markdown('<div class="gc-lbl">Original MRI</div>', unsafe_allow_html=True)
         with g2:
-            st.image(heatmap_rgb, use_column_width=True)
+            st.image(heatmap_rgb, use_container_width=True)
             st.markdown('<div class="gc-lbl">Attention Heatmap</div>', unsafe_allow_html=True)
         with g3:
-            st.image(overlay, use_column_width=True)
+            st.image(overlay, use_container_width=True)
             st.markdown('<div class="gc-lbl">Grad-CAM Overlay</div>', unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1146,7 +1147,7 @@ with right:
             data=pdf_report,
             file_name=f"NeuroScan_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
             mime="application/pdf",
-            use_column_width=True,
+            use_container_width=True,
             key="download_analysis_report",
             on_click="ignore"
         )
