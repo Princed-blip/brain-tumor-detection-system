@@ -547,7 +547,7 @@ with st.sidebar:
 
                 login = st.form_submit_button(
                     "Sign In",
-                    use_container_width=True
+                    use_column_width=True
                 )
 
             if login:
@@ -586,7 +586,7 @@ with st.sidebar:
 
                 signup = st.form_submit_button(
                     "Create Account",
-                    use_container_width=True
+                    use_column_width=True
                 )
 
             if signup:
@@ -1005,9 +1005,9 @@ with left:
 
     if uploaded:
         img_pil = Image.open(uploaded).convert("RGB")
-        st.image(img_pil, caption="Uploaded MRI Scan", use_container_width=True)
+        st.image(img_pil, caption="Uploaded MRI Scan", use_column_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        analyse = st.button("🔬  Analyse MRI Scan", use_container_width=True)
+        analyse = st.button("🔬  Analyse MRI Scan", use_column_width=True)
         st.markdown("""
         <div class="warn">
             <b>Important:</b> This is a research prototype for academic purposes only.
@@ -1121,13 +1121,13 @@ with right:
 
         g1, g2, g3 = st.columns(3)
         with g1:
-            st.image(np.array(img_pil.resize(IMG_SIZE)), use_container_width=True)
+            st.image(np.array(img_pil.resize(IMG_SIZE)), use_column_width=True)
             st.markdown('<div class="gc-lbl">Original MRI</div>', unsafe_allow_html=True)
         with g2:
-            st.image(heatmap_rgb, use_container_width=True)
+            st.image(heatmap_rgb, use_column_width=True)
             st.markdown('<div class="gc-lbl">Attention Heatmap</div>', unsafe_allow_html=True)
         with g3:
-            st.image(overlay, use_container_width=True)
+            st.image(overlay, use_column_width=True)
             st.markdown('<div class="gc-lbl">Grad-CAM Overlay</div>', unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1146,7 +1146,7 @@ with right:
             data=pdf_report,
             file_name=f"NeuroScan_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
             mime="application/pdf",
-            use_container_width=True,
+            use_column_width=True,
             key="download_analysis_report",
             on_click="ignore"
         )
